@@ -8,10 +8,16 @@ type
     Vector[N: static int] = array[N, float64]
 
 proc newVector*[N: static[int]](elements: varargs[float64, float64]): Vector[N] =
+    when N < 1:
+        raise newException(ValueError, "Vector dimension must be 1 or greater")
+
     for i, elem in elements.pairs():
         result[i] = elem
 
 proc randVector*[N: static[int]](max_float=1.0): Vector[N] =
+    when N < 1:
+        raise newException(ValueError, "Vector dimension must be 1 or greater")
+
     for i in countup(0, N-1):
         result[i] = rand(max_float)
 
@@ -24,14 +30,10 @@ proc v3*(elements: varargs[float64, float64]): Vector[3] =
 proc v4*(elements: varargs[float64, float64]): Vector[4] =
     newVector[4](elements)
 
-proc x*(v: Vector): float64 =
-    v[0]
-proc y*(v: Vector): float64 =
-    v[1]
-proc z*(v: Vector): float64 =
-    v[2]
-proc w*(v: Vector): float64 =
-    v[3]
+proc x*(v: Vector): float64 = v[0]
+proc y*(v: Vector): float64 = v[1]
+proc z*(v: Vector): float64 = v[2]
+proc w*(v: Vector): float64 = v[3]
 
 proc `==`*[N: static[int]](v1: Vector[N], v2: Vector[N]): bool =
     for i in countup(0, N-1):
@@ -116,6 +118,7 @@ proc proj*[N: static[int]](v: Vector[N], onto_v: Vector[N]): Vector[N] =
     ((v * onto_v) / (onto_v * onto_v)) * onto_v
 
 proc randomOrth*[N: static[int]](v: Vector[N]): Vector[N] =
+    # returns a random vector orthogonal to v
     let r = randVector[N]()
     result = r - proj(r, v)
 
@@ -129,6 +132,19 @@ proc center*[N: static[int]](vectors: varargs[Vector[N]]): Vector[N] =
 
 proc dim*[N: static[int]](v: Vector[N]): int =
     v.len()
+
+proc scalarDenominator*[N: static[int]](v1, v2: Vector[N]): float =
+    var temp = newVector[N]()
+    for i in countup(0, temp.len-1):
+        temp[i] = v1[i] / v2[i]
+
+    when N == 1:
+        return temp[0]
+    else:
+        for elem in temp[1..<temp.len]:
+            if abs(temp[0] - elem) > 0.00001:
+                return 0
+        return temp[0]
 
 
 let shape1 = [
@@ -145,41 +161,14 @@ let shape2 = [
     v2(0.9, 2)
 ]
 
-let axis = randomOrth(shape1[1] - shape1[0])
-
-let offset = (center(shape1) - center(shape2)).proj(axis)
-
 var
-    shape1_minmax: array[2, Vector[2]]
-    shape2_minmax: array[2, Vector[2]]
-    p: Vector[2]
+    perp, axis, dist, shape1max, shape1min, shape2max, shape2min, temp: Vector[2]
 
-for vertex in shape1:
-    p = proj(vertex, axis)
-    if p.dot(axis) < shape1_minmax[0].dot(axis):
-        shape1_minmax[0] = p + offset
-    elif p.dot(axis) > shape1_minmax[1].dot(axis):
-        shape1_minmax[1] = p + offset
+for i in countup(0, shape1.len-2):
+    axis = shape1[i+1] - shape1[i]
+    perp = randomOrth(axis)
+    dist = (center(shape1) - center(shape2)).proj(axis)
 
-for vertex in shape2:
-    p = proj(vertex, axis)
-    if p.dot(axis) < shape2_minmax[0].dot(axis):
-        shape2_minmax[0] = p + offset
-    elif p.dot(axis) > shape2_minmax[1].dot(axis):
-        shape2_minmax[1] = p + offset
+    for point in shape1:
+        temp = point.proj(axis)
 
-
-var intersect = true
-for i in countup(0, shape1[0].dim()-1):
-    if shape1_minmax[0][i] > shape2_minmax[1][i] or shape2_minmax[0][i] > shape1_minmax[1][i]:
-        echo "not intersecting"
-        intersect = false
-        break
-
-if intersect: echo "intersecting"
-
-
-echo shape1_minmax
-echo shape2_minmax
-#echo vertices[1] - vertices[0]
-#echo axis

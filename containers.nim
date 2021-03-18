@@ -16,8 +16,8 @@ iterator items*[S: static int, T](x: ObjectContainer[S, T]): T =
     while i < x.count:
         yield x.arr[i]
         i += 1
-iterator mitems*[S: static int, T](x: var ObjectContainer[S, T]): ptr T =
-    # gets all objects that are allocated and ready for use
+iterator item_ptrs*[S: static int, T](x: var ObjectContainer[S, T]): ptr T =
+    # gets all object ptrs that are allocated and ready for use
     var i = 0
     while i < x.count:
         yield addr x.arr[i]
@@ -36,21 +36,22 @@ iterator reserved_ptrs*[S: static int, T](x: ObjectContainer[S, T]): ptr T =
         yield addr x.arr[][^i]
         i += 1
 
+
 func getLast*[S: static int, T](x: ObjectContainer[S, T]): ptr T =
     addr x.arr[x.count-1]
 
-func `$`*(x: ObjectContainer): string =
-    $x.arr[]
+func `$`*[S: static int, T](x: ObjectContainer[S, T]): string =
+    "Container[" & $T & "]:  " & $x.arr[]
 func `[]`*[S: static int, T](x: ObjectContainer[S, T], key: uint): ptr T =
     x.table[key]
 
 
-proc create*[S: static int, T](container: var ObjectContainer[S, T]): ptr T =
-    # creates an object at the end of its container array
+proc new*[S: static int, T](container: var ObjectContainer[S, T]): ptr T =
+    # creates an object after all the other objects in the container array
 
     # die if we're at the edge
     if container.count + container.reserved_count > S:
-        raise newException(OutOfMemDefect, "out of space in " & $T & " container!")
+        raise newException(OutOfMemDefect, "[new] out of space in " & $T & " container!")
 
     # make a pointer to the first unallocated object space, which is tracked for free by container.count
     let p = cast[ptr T](cast[int](container.arr) + sizeof(T) * container.count)
@@ -78,6 +79,7 @@ proc destroy*[S: static int, T](container: var ObjectContainer[S, T], obj: ptr T
     # destroy by object ptr instead of by id
     destroy(container, obj.table_id)
 
+
 proc reserve*[S: static int, T](container: var ObjectContainer[S, T]): ptr T =
     # creates an object at the VERY end of the array
     # these should be used for async object creation, in case it takes a while
@@ -85,7 +87,7 @@ proc reserve*[S: static int, T](container: var ObjectContainer[S, T]): ptr T =
 
     # die if we're at the edge
     if container.count + container.reserved_count > S:
-        raise newException(OutOfMemDefect, "out of space in " & $T & " container!")
+        raise newException(OutOfMemDefect, "[reserve] out of space in " & $T & " container!")
 
     # make a pointer to the first unallocated object space, which is tracked for free by container.count
     let p = cast[ptr T](cast[int](container.arr) + (S - container.reserved_count - 1) * sizeof(T))
@@ -112,7 +114,9 @@ proc finalize*[S: static int, T](container: var ObjectContainer[S, T], obj: ptr 
     return p  # return pointer
 
 
-macro contiguous*(names, body: untyped) =
+macro container*(name, typesec: untyped) =
+    echo treeRepr name
+    echo treeRepr typesec
     result = newStmtList()
 
     var
@@ -120,82 +124,70 @@ macro contiguous*(names, body: untyped) =
         container_ident: NimNode
         max_size: NimNode
 
-    if names.kind != nnkInfix:
-        raise newException(ValueError, "bad syntax")
+    if name.kind != nnkBracketExpr:
+        raise newException(ValueError, "bad syntax, or maximum container size not specified")
 
-    if names[0] == ident("in"):
-        obj_ident = names[1]
+    container_ident = name[0]
+    max_size = name[1]
 
-        if names[2].kind != nnkBracketExpr:
-            raise newException(ValueError, "maximum array size not specified")
+    obj_ident = typesec[0][0][0]
 
-        container_ident = names[2][0]
-        max_size = names[2][1]
+    typesec[0][0][2][2].add(newIdentDefs(ident "table_id", ident "uint", newEmptyNode()))
 
-    else:
-        raise newException(ValueError, "you must specify container name and size")
+    echo treeRepr typesec
 
-    let typedef = quote do:
-        type `obj_ident`* = object
-            table_id*: uint
-
-    for line in body:
-        #echo treeRepr line
-        try:
-            assert line.kind == nnkCall
-            assert line[0].kind in {nnkIdent, nnkPragmaExpr}
-            assert line[1].kind == nnkStmtList
-        except AssertionDefect:
-            raise newException(ValueError, "malformed body")
-
-        typedef[0][2][2].add(newIdentDefs(nnkPostfix.newTree(ident "*", line[0]), line[1][0]))
-
-    result.add(typedef)
+    result.add(typesec)
     result.add quote do:
         var `container_ident`* = ObjectContainer[`max_size`, `obj_ident`]()
         `container_ident`.arr = new array[`max_size`, `obj_ident`]
         `container_ident`.table = newTable[uint, ptr `obj_ident`](`max_size`)
 
 
-const MAX_ENTITY = 20
+when isMainModule:
+    const MAX_ENTITY = 20
 
-contiguous Entity in Entities[MAX_ENTITY]:
-    a: int
-    b, c: int
+    expandMacros:
+        container Entities[MAX_ENTITY]:
+            type Entity = object
+                a: int
+                b, c: int
 
-echo "GENERAL TEST"
-echo Entities
-echo Entities.create()[]
-echo Entities.create()[]
-echo Entities.create()[]
-echo Entities.create()[]
-Entities[1].a = 5
-echo Entities
-Entities.destroy(Entities[1])
-echo Entities
 
-echo "RESERVATION TEST"
 
-var e = Entities.reserve()
-echo Entities
-e.b = 3
-echo e[]
-echo Entities.finalize(e)[]
-echo Entities
+when isMainModule:
+    echo "GENERAL TEST"
+    echo Entities
+    echo Entities.new()[]
+    echo Entities.new()[]
+    echo Entities.new()[]
+    echo Entities.new()[]
+    Entities[1].a = 5
+    echo Entities
+    Entities.destroy(Entities[1])
+    echo Entities
 
-Entities.destroy(2)
+    echo "RESERVATION TEST"
 
-discard Entities.reserve()
-
-echo "ITER TEST"
-for e in Entities:
-    echo e
-for e in Entities.reserved_ptrs():
+    var e = Entities.reserve()
+    echo Entities
+    e.b = 3
     echo e[]
+    echo Entities.finalize(e)[]
+    echo Entities
+
+    Entities.destroy(2)
+
+    discard Entities.reserve()
+
+    echo "ITER TEST"
+    for e in Entities:
+        echo e
+    for e in Entities.reserved_ptrs():
+        echo e[]
 
 
-#echo Entities.create()[]
-#echo $Entities
-#echo Entities[0][]
+    #echo Entities.create()[]
+    #echo $Entities
+    #echo Entities[0][]
 
-#echo newObjectIn(Entities)[]
+    #echo newObjectIn(Entities)[]

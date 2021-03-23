@@ -1,72 +1,150 @@
 import sdl2 as sdl, sdl2/image as image, sdl2/gfx
-import clocks
+import clocks, events
+import sugar, tables, math
 
-const
-    WINDOW_TITLE = "Game Test"
-    WIDTH = 640
-    HEIGHT = 480
-    RendererFlags = sdl.RendererAccelerated or sdl.RendererPresentVsync
+const RendererFlags = sdl.RendererAccelerated or sdl.RendererPresentVsync
 
 type
-    Game = ref object
+    KeybindCallback = (int) -> void
+
+    Screen = object
         window: sdl.WindowPtr
         renderer: sdl.RendererPtr
 
-    Image = ref object of RootObj
+        clock: Clock[5]
+        event_bus: ref EventBus
+        key_calls: Table[string, seq[KeybindCallback]]
+
+        running: bool
+        real_fps: float
+
+    Image = ref object
         texture: sdl.TexturePtr
-        w, h: cint
+        w, h: int
 
 
-proc draw(game: Game, img: Image, x, y: cint) =
-    var r: sdl.Rect = (x, y, img.w, img.h)
-    game.renderer.copy(img.texture, nil, addr r)
+proc draw(screen: var Screen, img: Image, x, y: cint) =
+    var r: sdl.Rect = (x, y, cint img.w, cint img.h)
+    screen.renderer.copy(img.texture, nil, addr r)
 
-proc loadImage(game: Game, fpath: string): Image =
+proc loadImage(screen: var Screen, fpath: string): Image =
     new result
-    result.texture = game.renderer.loadTexture(fpath)
-    result.texture.queryTexture(nil, nil, addr result.w, addr result.h)
-    return result
+    result.texture = screen.renderer.loadTexture(fpath)
+    discard result.texture.queryTexture(nil, nil,
+        cast[ptr cint](addr result.w), cast[ptr cint](addr result.h))
+proc freeImage(img: Image) =
+    destroyTexture(img.texture)
 
-proc initGame(): Game =
+proc initScreen(title: string, width, height: int, event_bus: ref EventBus): Screen =
     discard image.init(IMG_INIT_PNG or IMG_INIT_JPG or IMG_INIT_TIF)
     discard sdl.init(INIT_EVERYTHING)
 
-    new result
     result.window = sdl.createWindow(
-        WINDOW_TITLE,
+        title,
         sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED,
-        WIDTH,
-        HEIGHT,
+        cint width,
+        cint height,
         0  # window flags
     )
     result.renderer = result.window.createRenderer(-1, RendererFlags);
     discard result.renderer.setDrawColor(0, 0, 0, 255)
 
-proc exit(game: Game) =
-    game.renderer.destroyRenderer()
-    game.window.destroyWindow()
+    result.event_bus = event_bus
+    event_bus.add_event("draw")
+    result.key_calls = initTable[string, seq[KeybindCallback]]()
+
+    result.running = true
+
+proc exit(screen: var Screen) =
+    screen.running = false
+    screen.renderer.destroyRenderer()
+    screen.window.destroyWindow()
     image.quit()
     echo "Clean shutdown."
     sdl.quit()
 
 
-proc clear(game: Game) =
-    game.renderer.clear()
+proc keybind(screen: var Screen, key_name: string, cb: KeybindCallback) =
+    discard screen.key_calls.hasKeyOrPut(key_name, newSeq[KeybindCallback]())
+    screen.key_calls[key_name].add cb
 
-proc update(game: Game) =
-    game.renderer.present()
+template bind_key(screen: var Screen, key_name: string, code: untyped): untyped =
+    screen.keybind(key_name, proc(n: int) = code)
+
+proc clear(screen: var Screen) =
+    screen.renderer.clear()
+proc update(screen: var Screen) =
+    screen.renderer.present()
+
+
+proc processInputs(screen: var Screen) =
+    var evt = sdl.defaultEvent
+    while pollEvent(evt):
+        case evt.kind
+        of QuitEvent:
+            screen.exit()
+        else:
+            discard
+
+    let inputs = sdl.getKeyboardState(nil)
+    var n: uint8
+    for key_name, callbacks in screen.key_calls.pairs():
+        n = inputs[int getScancodeFromName cstring key_name]
+        if n > 0:
+            for cb in callbacks:
+                cb(int n)
+
+
+proc mainloop(screen: var Screen, fps: float=60) =
+    var interval, to_wait: float
+
+    screen.real_fps = fps
+
+    if fps > 0:
+        interval = 1/fps
+
+    while screen.running:
+        screen.clock.reset(0)
+
+        screen.processInputs()
+        screen.clear()
+        screen.event_bus.trigger("draw")
+        screen.update()
+
+        to_wait = interval - screen.clock.poll(0)
+        if to_wait > 0:
+            sleep(int floor to_wait*1000)
+
+        screen.real_fps = 1 / screen.clock.poll(0)
+        #echo "FPS: ", round(screen.real_fps, 2)
+        #echo "Slept: ", int floor to_wait*1000
+
 
 when isMainModule:
+    const
+        WINDOW_TITLE = "Game Test"
+        WIDTH = 640
+        HEIGHT = 480
+        FPS = 0
+
     var
-        game = initGame()
-        img = game.loadImage("assets/textures/test.png")
+        bus = new EventBus
+        screen = initScreen(WINDOW_TITLE, WIDTH, HEIGHT, bus)
+        img = screen.loadImage("assets/textures/test.png")
 
+        x, y: float
+        speed = 200.0
 
-    game.clear()
-    game.update()
-    sleep(300)
-    game.draw(img, 50, 50)
-    game.update()
-    sleep(1000)
+    img.w = 128
+    img.h = 128
+    x = (WIDTH - img.w).float * 0.5
+    y = (HEIGHT - img.h).float * 0.5
 
-    game.exit()
+    bus.register("draw", proc() = screen.draw(img, cint x, cint y))
+
+    screen.bind_key "Up": y -= speed/screen.real_fps
+    screen.bind_key "Down": y += speed/screen.real_fps
+    screen.bind_key "Left": x -= speed/screen.real_fps
+    screen.bind_key "Right": x += speed/screen.real_fps
+
+    screen.mainloop(FPS)

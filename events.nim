@@ -14,34 +14,34 @@ proc add_ordered_no_duplicates[T](s: var seq[T], item: T) =
 #================================
 
 type
-    EventCallback = proc: void
+    EventCallback* = proc: void
 
-    Event = object
+    Event* = object
         priorities: seq[int]
         callbacks: Table[int, seq[EventCallback]]  # priority: @[callbacks]
 
-    EventBus = Table[string, Event]
+    EventBus* = Table[string, Event]
 
 
-proc add_event(bus: var EventBus, name: string) =
+proc add_event*(bus: ref EventBus, name: string) =
     bus[name] = Event()
 
-proc register(e: var Event, f: EventCallback, priority=0'i16) =
+proc register*(e: var Event, f: EventCallback, priority=0'i16) =
     e.priorities.add_ordered_no_duplicates(priority)
     discard e.callbacks.hasKeyOrPut(priority, newSeq[EventCallback]())
     e.callbacks[priority].add(f)
-proc register(bus: var EventBus, name: string, f: EventCallback, priority=0'i16) =
+proc register*(bus: ref EventBus, name: string, f: EventCallback, priority=0'i16) =
     bus[name].register(f, priority)
 
-proc trigger(e: var Event) =
+proc trigger*(e: var Event) =
     for level in e.priorities:
         for cb in e.callbacks[level]:
             cb()
-proc trigger(bus: var EventBus, name: string) =
+proc trigger*(bus: ref EventBus, name: string) =
     bus[name].trigger()
 
 
-macro RegisteredIn(bus, enumeration) =
+macro RegisteredIn*(bus, enumeration) =
     result = newStmtList()
 
     result.add enumeration[0]
@@ -67,7 +67,7 @@ macro RegisteredIn(bus, enumeration) =
     echo result.repr
 
 when isMainModule:
-    var bus = EventBus()
+    var bus = new EventBus
 
     RegisteredIn bus:
         type Events = enum

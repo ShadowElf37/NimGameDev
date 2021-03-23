@@ -14,17 +14,17 @@ type
 
     Image = ref object of RootObj
         texture: sdl.TexturePtr
-        w, h: int
+        w, h: cint
 
 
-proc draw(game: Game, img: Image, x, y: int) =
-    var r: sdl.Rect = (x: cint x, y: cint y, w: cint img.w, h: cint img.h)
+proc draw(game: Game, img: Image, x, y: cint) =
+    var r: sdl.Rect = (x, y, img.w, img.h)
     game.renderer.copy(img.texture, nil, addr r)
 
 proc loadImage(game: Game, fpath: string): Image =
     new result
     result.texture = game.renderer.loadTexture(fpath)
-    result.texture.queryTexture(nil, nil, cast[ptr cint](addr result.w), cast[ptr cint](addr result.h))
+    result.texture.queryTexture(nil, nil, addr result.w, addr result.h)
     return result
 
 proc initGame(): Game =

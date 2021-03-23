@@ -6,6 +6,24 @@ randomize()
 
 type
     Vector[N: static int] = array[N, float64]
+    Polygon[X: static int, N: static int] = array[X, Vector[N]]
+
+
+proc edges*[X: static int, N: static int](shape: Polygon[X, N]): array[X, array[2, Vector[N]]] =
+    for i, point in shape.pairs():
+        if i == shape.len-1:
+            result[i] = [point, shape[0]]
+            return result
+        result[i] = [point, shape[i+1]]
+proc edge_vectors*[X: static int, N: static int](shape: Polygon[X, N]): array[X, Vector[N]] =
+    let e = shape.edges
+    for i, edge in e.pairs():
+        result[i] = edge[1] - edge[0]
+
+proc offset*[X: static int, N: static int](shape: Polygon[X, N], offset_vector: Vector[2]): Polygon[X, N] =
+    for i, point in shape.pairs():
+        result[i] = point + offset_vector
+
 
 proc newVector*[N: static[int]](elements: varargs[float64, float64]): Vector[N] =
     when N < 1:
@@ -75,13 +93,26 @@ oneVectorOperator `-`:
     vectorIterative: -v[i]
 
 # SOME NICE FUNCTIONS
-proc map*[N: static[int], R](f: proc (i: float64): float64, v: Vector[N]): Vector[N] =
+proc map*[N: static[int]](f: proc (i: float64): float64, v: Vector[N]): Vector[N] =
     for i in countup(0, N-1):
         result[i] = f(v[i])
 
-template testAllElems*[N: static[int]](v: Vector[N], condition: untyped) =
+proc all*[N: static[int], T](v: array[N, T]|Vector[N], cmp: (proc(i: T): bool)=(proc(i:T): bool=bool(i))): bool =
+    for i in v:
+        if not cmp(i):
+            return false
+    return true
+proc all_positive*[N: static[int], T](v: array[N, T]|Vector[N]): bool =
+    v.all(proc(i:int):bool=i>0)
+proc all_positive_or_zero*[N: static[int], T](v: array[N, T]|Vector[N]): bool =
+    v.all(proc(i:int):bool=i>=0)
+
+proc zero*[N: static[int], T](v: Vector[N]): bool =
+    v.all(proc(i:int):bool=i==0)
+
+template testAll*[N: static[int]](v: Vector[N], condition: untyped) =
     ## USE `e` AS GENERIC ELEMENT
-    (proc (): int =
+    (proc (): bool =
         var e: float64
         for i in countup(0, N-1):
             e = v[i]
@@ -114,8 +145,39 @@ proc distance*[N: static[int]](v1: Vector[N], v2: Vector[N]): float64 =
 proc `---`*[N: static[int]](v1: Vector[N], v2: Vector[N]): float64 = distance(v1, v2)
 
 # ETC
+proc proj_coeff*[N: static[int]](v: Vector[N], onto_v: Vector[N]): float =
+    ((v * onto_v) / (onto_v * onto_v))
+proc proj_sign*[N: static[int]](v: Vector[N], onto_v: Vector[N]): int =
+    return sgn(v * onto_v)
 proc proj*[N: static[int]](v: Vector[N], onto_v: Vector[N]): Vector[N] =
-    ((v * onto_v) / (onto_v * onto_v)) * onto_v
+    proj_coeff(v, onto_v) * onto_v
+
+proc decompose2D_coeffs*(v, basis1, basis2: Vector[2]): array[2, float] =
+    let
+        b1b2 = basis1 * basis2
+        b1b1 = basis1 * basis1
+        b2b2 = basis2 * basis2
+        vb1 = v * basis1
+        vb2 = v * basis2
+        det = b1b1 * b2b2 - b1b2 ^ 2
+
+    return [
+        (vb1 * b2b2 - vb2 * b1b2) / det,
+        (vb2 * b1b1 - vb1 * b1b2) / det
+    ]
+proc decompose2D_signs*(v, basis1, basis2: Vector[2]): array[2, int] =
+    let
+        b1b2 = basis1 * basis2
+        b1b1 = basis1 * basis1
+        b2b2 = basis2 * basis2
+        vb1 = v * basis1
+        vb2 = v * basis2
+        det = b1b1 * b2b2 - b1b2 ^ 2
+
+    return [
+        sgn (vb1 * b2b2 - vb2 * b1b2) / det,
+        sgn (vb2 * b1b1 - vb1 * b1b2) / det
+    ]
 
 proc randomOrth*[N: static[int]](v: Vector[N]): Vector[N] =
     # returns a random vector orthogonal to v
@@ -146,27 +208,56 @@ proc scalarDenominator*[N: static[int]](v1, v2: Vector[N]): float =
                 return 0
         return temp[0]
 
+proc withinVectors2D*(v, b1, b2: Vector[2]): bool =
+    if scalarDenominator(b1, b2) != 0:
+        let
+            mv = @v
+            mb1 = b1 * v
+            mb2 = b2 * v
+        return min(mb1, mb2) < mv and mv < max(mb1, mb2)
+    return decompose2D_signs(v, b1, b2).all_positive
 
-let shape1 = [
+let test = decompose2D_signs(v2(5, -3), v2(1, 0), v2(1, 1))
+
+echo test
+
+echo withinVectors2D(v2(1, 1), v2(1, 0), v2(0, 1))
+echo withinVectors2D(v2(2, 1), v2(1, 0), v2(0, 1))
+echo withinVectors2D(v2(1, -1), v2(1, 0), v2(0, 1))
+
+
+let shape1 = Polygon [
     v2(1, 1),
     v2(1, -1),
     v2(-1, -1),
     v2(-1, 1)
 ]
 
-let shape2 = [
+let shape2 = Polygon [
     v2(2, 2),
     v2(2, 0),
     v2(0.9, 0),
     v2(0.9, 2)
 ]
 
-var
-    perp, axis, dist, shape1max, shape1min, shape2max, shape2min, temp: Vector[2]
+echo edges(shape1)
+echo edge_vectors(shape1)
 
-for i in countup(0, shape1.len-2):
-    axis = shape1[i+1] - shape1[i]
-    perp = randomOrth(axis)
+var
+    perp, axis, dist, temp: Vector[2]
+    shape1outer, shape2outer: array[2, Vector[2]]
+    shapemaxmin_set: array[4, bool]
+
+for edge in shape1.edge_vectors:
+    axis = randomOrth(edge)
+    for point in shape1:
+        if not shapemaxmin_set[0]:
+            shape1max = point
+            shapemaxmin_set[0] = true
+        if not shapemaxmin_set[1]:
+            shape1min = point
+            shapemaxmin_set[1] = true
+
     dist = (center(shape1) - center(shape2)).proj(axis)
 
     for point in shape1:

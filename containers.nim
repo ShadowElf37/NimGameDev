@@ -115,8 +115,8 @@ proc finalize*[S: static int, T](container: var ObjectContainer[S, T], obj: ptr 
 
 
 macro container*(name, typesec: untyped) =
-    echo treeRepr name
-    echo treeRepr typesec
+    #echo treeRepr name
+    #echo treeRepr typesec
     result = newStmtList()
 
     var
@@ -134,7 +134,7 @@ macro container*(name, typesec: untyped) =
 
     typesec[0][0][2][2].add(newIdentDefs(ident "table_id", ident "uint", newEmptyNode()))
 
-    echo treeRepr typesec
+    #echo treeRepr typesec
 
     result.add(typesec)
     result.add quote do:

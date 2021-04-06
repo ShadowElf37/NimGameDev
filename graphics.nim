@@ -1,41 +1,46 @@
-import sdl2 as sdl, sdl2/image as image, sdl2/gfx
+import sdl2 as sdl, sdl2/image as image
 import clocks, events
 import sugar, tables, math
+
+discard sdl.setHint(HINT_RENDER_SCALE_QUALITY, "1")
 
 const RendererFlags = sdl.RendererAccelerated or sdl.RendererPresentVsync
 
 type
-    KeybindCallback = (int) -> void
+    KeybindCallback* = (int) -> void
 
-    Screen = object
+    Screen* = object
         window: sdl.WindowPtr
-        renderer: sdl.RendererPtr
+        renderer*: sdl.RendererPtr
 
-        clock: Clock[5]
-        event_bus: ref EventBus
+        clock*: Clock[5]
+        event_bus*: ref EventBus
         key_calls: Table[string, seq[KeybindCallback]]
 
         running: bool
-        real_fps: float
+        real_fps*: float
 
-    Image = ref object
-        texture: sdl.TexturePtr
-        w, h: int
+    Image* = ref object
+        texture*: sdl.TexturePtr
+        w*, h*: int
 
 
-proc draw(screen: var Screen, img: Image, x, y: cint) =
+proc draw*(screen: var Screen, img: Image, x, y: cint) =
     var r: sdl.Rect = (x, y, cint img.w, cint img.h)
     screen.renderer.copy(img.texture, nil, addr r)
+proc drawRotated*(screen: var Screen, img: Image, x, y: cint, angle: float) =
+    var r: sdl.Rect = (x, y, cint img.w, cint img.h)
+    screen.renderer.copyEx(img.texture, nil, addr r, angle, nil)
 
-proc loadImage(screen: var Screen, fpath: string): Image =
+proc loadImage*(screen: var Screen, fpath: string): Image =
     new result
     result.texture = screen.renderer.loadTexture(fpath)
     discard result.texture.queryTexture(nil, nil,
         cast[ptr cint](addr result.w), cast[ptr cint](addr result.h))
-proc freeImage(img: Image) =
+proc freeImage*(img: Image) =
     destroyTexture(img.texture)
 
-proc initScreen(title: string, width, height: int, event_bus: ref EventBus): Screen =
+proc initScreen*(title: string, width, height: int, event_bus: ref EventBus, bg_color=(0,0,0)): Screen =
     discard image.init(IMG_INIT_PNG or IMG_INIT_JPG or IMG_INIT_TIF)
     discard sdl.init(INIT_EVERYTHING)
 
@@ -47,7 +52,7 @@ proc initScreen(title: string, width, height: int, event_bus: ref EventBus): Scr
         0  # window flags
     )
     result.renderer = result.window.createRenderer(-1, RendererFlags);
-    discard result.renderer.setDrawColor(0, 0, 0, 255)
+    discard result.renderer.setDrawColor(uint8 bg_color[0], uint8 bg_color[1], uint8 bg_color[2], 255)
 
     result.event_bus = event_bus
     event_bus.add_event("draw")
@@ -55,7 +60,7 @@ proc initScreen(title: string, width, height: int, event_bus: ref EventBus): Scr
 
     result.running = true
 
-proc exit(screen: var Screen) =
+proc exit*(screen: var Screen) =
     screen.running = false
     screen.renderer.destroyRenderer()
     screen.window.destroyWindow()
@@ -64,20 +69,20 @@ proc exit(screen: var Screen) =
     sdl.quit()
 
 
-proc keybind(screen: var Screen, key_name: string, cb: KeybindCallback) =
+proc keybind*(screen: var Screen, key_name: string, cb: KeybindCallback) =
     discard screen.key_calls.hasKeyOrPut(key_name, newSeq[KeybindCallback]())
     screen.key_calls[key_name].add cb
 
-template bind_key(screen: var Screen, key_name: string, code: untyped): untyped =
+template bind_key*(screen: var Screen, key_name: string, code: untyped): untyped =
     screen.keybind(key_name, proc(n: int) = code)
 
-proc clear(screen: var Screen) =
+proc clear*(screen: var Screen) =
     screen.renderer.clear()
-proc update(screen: var Screen) =
+proc update*(screen: var Screen) =
     screen.renderer.present()
 
 
-proc processInputs(screen: var Screen) =
+proc processInputs*(screen: var Screen) =
     var evt = sdl.defaultEvent
     while pollEvent(evt):
         case evt.kind
@@ -95,7 +100,7 @@ proc processInputs(screen: var Screen) =
                 cb(int n)
 
 
-proc mainloop(screen: var Screen, fps: float=60) =
+proc mainloop*(screen: var Screen, fps: float) =
     var interval, to_wait: float
 
     screen.real_fps = fps
